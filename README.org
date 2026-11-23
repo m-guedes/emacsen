@@ -112,8 +112,8 @@ Each build runs =docker build --pull --load= and tags the local image =emacsen:N
 
 Variants, for builders that declare them:
 
-- =x= :: Selected when =dpkg= reports =libx11-6= installed. X11, Xft, DBus, JPEG, PNG, RSVG, TIFF and XPM.
-- =server= :: Selected otherwise, including on hosts /without/ =dpkg=. No X11, DBus, GConf, GSettings or sound.
+- =x= :: Selected when =Xorg= or =Xwayland= is on =PATH=. X11, Xft, DBus, JPEG, PNG, RSVG, TIFF and XPM.
+- =server= :: Selected otherwise. No X11, DBus, GConf, GSettings or sound.
 
 =--variant x|server= overrides detection; refused for builders without variants.
 

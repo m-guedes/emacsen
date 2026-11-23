@@ -338,7 +338,11 @@ build_image() (
     if [[ -n $variants ]]; then
         read -r -a declared_variants <<< "$variants"
         if [[ $variant_seen == false ]]; then
-            if dpkg -s libx11-6 >/dev/null 2>&1; then variant=x; else variant=server; fi
+            if command -v Xorg >/dev/null || command -v Xwayland >/dev/null; then
+                variant=x
+            else
+                variant=server
+            fi
         fi
 
         local supported=false declared
