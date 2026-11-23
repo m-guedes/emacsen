@@ -163,18 +163,18 @@ The workspace is read-only and each invocation is a new container, so one =exec=
 
 ** Host libraries
 
-Host packages for an installed Emacs on Ubuntu 26.04, beyond the desktop or terminal libraries already present. Containers carry their own. Run as root:
+Host packages for an installed Emacs on Ubuntu 26.04, beyond those of an Ubuntu desktop for =x= or a minimal Ubuntu system for =server=. Containers carry their own. Run as root:
 
 =x=:
 
 #+begin_src sh
-apt install libgccjit0 liblcms2-2 libtree-sitter0.25
+apt install libgccjit0 liblcms2-2 liblockfile1 libm17n-0 libotf1 libtree-sitter0.25
 #+end_src
 
 =server=:
 
 #+begin_src sh
-apt install libgccjit0 libgnutls30t64 libncurses6 libtree-sitter0.25 libxml2-16
+apt install libgccjit0 libgnutls30t64 libgpm2 liblcms2-2 liblockfile1 libsqlite3-0 libtree-sitter0.25 libxml2-16
 #+end_src
 
 Native compilation needs the =libgccjit= runtime matching the builder's GCC version. After a host release upgrade, target the new release in the builder and rebuild; changed library sonames can break installed binaries.
