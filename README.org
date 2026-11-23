@@ -115,7 +115,7 @@ Variants, for builders that declare them:
 - =x= :: Selected when =Xorg= or =Xwayland= is on =PATH=. X11, Xft, DBus, JPEG, PNG, RSVG, TIFF and XPM.
 - =server= :: Selected otherwise. No X11, DBus, GConf, GSettings or sound.
 
-=--variant x|server= overrides detection; refused for builders without variants.
+Build reports the detected variant. =--variant x|server= overrides detection; refused for builders without variants.
 
 * Run without installing
 

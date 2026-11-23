@@ -343,6 +343,7 @@ build_image() (
             else
                 variant=server
             fi
+            printf 'emacsen: detected variant %s; --variant overrides\n' "$variant" >&2
         fi
 
         local supported=false declared
