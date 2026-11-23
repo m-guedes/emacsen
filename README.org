@@ -1,22 +1,27 @@
 #+TITLE: Emacsen
 
-Build Emacs recipes into Docker images. Install an image's Emacs on the host, or run it in isolation for compatibility testing.
+Build an Emacs release, tag or branch, from upstream or a local clone, into a Docker image. Run it in isolation, or install it into the host's =/usr/local=. emacsen compiles nothing on the host.
 
 * Requirements
 
-- Linux; =run= and =exec= require kernel 5.12+ for [[https://docs.docker.com/engine/storage/bind-mounts/#recursive-mounts][recursive read-only mounts]].
+- Linux; =run= and =exec= require kernel 5.12+ for recursive read-only bind mounts.
 - Docker Engine 25+ with BuildKit, access to the daemon.
 - Bash 5, Git, curl, GNU coreutils and findutils, util-linux =flock=.
 
+* Quick start
+
 #+begin_src sh
-git clone https://github.com/midsbie/emacsen.git
-cd emacsen
-./emacsen --help
+./emacsen build 31.1
+./emacsen run 31.1 -- -Q
 #+end_src
 
-* Recipes and builders
+To install on an Ubuntu 26.04 host, see Install on the host.
 
-=recipes/NAME/recipe= defines target =NAME=: a source and a builder under =builders/=. Builder names are not targets.
+* Choose what to build
+
+A recipe, =recipes/NAME/recipe=, names a source and a builder; =NAME= is the target of every command but =uninstall=. The ubuntu-26.04 builder is verified with 31.1 and master; other versions are untested with it.
+
+** Shipped recipes
 
 | Recipe | Source              | Builder      | Host installation |
 |--------+---------------------+--------------+-------------------|
@@ -24,22 +29,62 @@ cd emacsen
 | 31.1   | GNU release tarball | ubuntu-26.04 | Ubuntu 26.04      |
 | master | Locked Git commit   | ubuntu-26.04 | Ubuntu 26.04      |
 
-Recipe, builder and lock metadata: =key=value= lines and =#= comments, no quoting or expansion. Keys are lowercase letters, digits and hyphens, starting with a letter. Duplicate, unknown and misplaced keys are refused.
+** A release
 
-- Recipe :: =source= and =builder= required; =version= optional, checked against the built Emacs. Source keys by kind:
-  - =tarball= :: =url=, =sha256=. Downloads are verified and cached at =.emacsen/sources/tarballs/SHA256=.
-  - =git= :: =url=, full =ref=. Builds use the commit in =recipes/NAME/lock=, whose =ref= must match the recipe's.
-- Builder :: =builders/NAME/{builder,Dockerfile,build.sh}=: build procedure, dependencies and configure options. =builder= accepts only =variants=, space-separated; without variants the file holds only comments.
-  - =26.3= :: Ubuntu 20.04, =linux/amd64=, GCC 9. Terminal and batch only, with GnuTLS, XML and zlib. Standard Lisp loads at every start; =dump-emacs= is unavailable.
-  - =ubuntu-26.04= :: GCC 14, native compilation, tree-sitter and LTO; variants =x= and =server=.
+Using 30.2 as an example, create =recipes/30.2/recipe=:
 
-=update NAME= resolves a Git recipe's =ref= in its source repository and rewrites its lock; an annotated tag locks the commit it names. Builds never change the lock and refuse one naming anything but a commit.
+#+begin_example
+source=tarball
+url=https://ftp.gnu.org/gnu/emacs/emacs-30.2.tar.xz
+sha256=SHA256
+version=30.2
+builder=ubuntu-26.04
+#+end_example
+
+=sha256= is the only check emacsen applies to the download; take it from a tarball whose GNU signature you have verified.
+
+#+begin_src sh
+./emacsen build 30.2
+#+end_src
+
+** A tag or branch
+
+Create =recipes/emacs-30.2/recipe=; for a branch, set ~ref=refs/heads/BRANCH~:
+
+#+begin_example
+source=git
+url=https://github.com/emacs-mirror/emacs.git
+ref=refs/tags/emacs-30.2
+builder=ubuntu-26.04
+#+end_example
+
+Lock the ref, then build:
+
+#+begin_src sh
+./emacsen update emacs-30.2
+./emacsen build emacs-30.2
+#+end_src
+
+=update= resolves =ref= in the source repository and writes its commit to =recipes/NAME/lock=, which is not edited by hand; an annotated tag locks the commit it names. Builds use the lock unchanged, and refuse a Git recipe without one, a lock whose =ref= differs from the recipe's, and a lock naming anything but a commit.
+
+** Follow a branch
+
+Run =update= again to move the lock to the branch's current commit, then rebuild:
 
 #+begin_src sh
 ./emacsen update master
+./emacsen build master
 #+end_src
 
-For local experiments, commit source changes on a branch and create =recipes/experiment/recipe=:
+** A commit or local branch
+
+Recipes name a ref, never a commit. To build a commit, create a branch for it in a local clone; work already on a local branch needs none:
+
+#+begin_src sh
+git -C /absolute/path/to/emacs branch experiment COMMIT
+#+end_src
+
+Create =recipes/experiment/recipe=:
 
 #+begin_example
 source=git
@@ -48,45 +93,73 @@ ref=refs/heads/experiment
 builder=ubuntu-26.04
 #+end_example
 
-Local Git sources accept absolute paths or =file://= URLs; no push is required. Lock the branch before building:
+No push is required.
 
 #+begin_src sh
 ./emacsen update experiment
 ./emacsen build experiment
 #+end_src
 
-Keep the locked commit available for rebuilds with an empty source cache.
-
-=emacs/= is an upstream submodule for analysis; builds do not require it.
+Keep the locked commit in the clone; a rebuild with an empty source cache fetches it again.
 
 * Build
 
 #+begin_src sh
-./emacsen build 26.3
+./emacsen build 31.1
 #+end_src
 
-Each build runs =docker build --pull --load= and tags the local image =emacsen:NAME=.
+Each build runs =docker build --pull --load= and tags the local image =emacsen:NAME=. A rebuild moves the tag; the previous image remains, untagged, until pruned. The Ubuntu 26.04 base floats and Ubuntu packages are unpinned, so rebuilds can differ; the 26.3 base is digest-pinned.
 
 Variants, for builders that declare them:
 
-- =x= :: Selected when **=dpkg=** reports =libx11-6= installed. X11, Xft, DBus, JPEG, PNG, RSVG, TIFF and XPM.
+- =x= :: Selected when =dpkg= reports =libx11-6= installed. X11, Xft, DBus, JPEG, PNG, RSVG, TIFF and XPM.
 - =server= :: Selected otherwise, including on hosts /without/ =dpkg=. No X11, DBus, GConf, GSettings or sound.
 
 =--variant x|server= overrides detection; refused for builders without variants.
 
-The Ubuntu 26.04 base floats and Ubuntu packages are unpinned; the 26.3 base is digest-pinned. Rebuilds can differ and move the recipe tag; previous images are not retained.
-
-Each build writes =.emacsen/builds/DIGEST.txt=, =DIGEST= being the image ID without =sha256:=. It holds =image-id:=, =image-tag:= and the image's =/usr/share/emacsen/build-info=: source, Emacs version, prefix, distribution, configure options, compiler, packages, and the builder's revision, dirty state and input hashes.
+* Run without installing
 
 #+begin_src sh
-./emacsen exec 26.3 -- cat /usr/share/emacsen/build-info
+./emacsen run 26.3 -- -Q --batch --eval '(princ emacs-version)'
+./emacsen exec 26.3 -- sh -c 'printf "%s\n" "$PWD"; id'
 #+end_src
 
-* Install
+=run= starts the image's Emacs with the arguments after =--=; =exec= starts a command from the image's =PATH=. Both mount the workspace, the current directory or =--directory DIR=, read-only at =/work= and start in it. Pass =-Q= for compatibility checks.
 
-=install NAME= runs Emacs's own =make install= from the image's retained build tree into the host's =/usr/local=. It requires a rootful Docker daemon; =docker= group membership is root-equivalent. Nothing compiles on the host.
+Each run is a fresh container:
 
-The image must carry =install-info=, with =build-info= declaring =build-tree:=, =prefix: /usr/local=, =source-directory: /usr/local/share/emacs/VERSION/= and =os-release:= matching the host's =ID VERSION_ID=. The container runs as root with no network, capabilities limited to CHOWN, DAC_OVERRIDE, FOWNER and FSETID, and privilege escalation disabled.
+- The workspace is read-only; write to =/tmp=.
+- =HOME= starts empty and is discarded on exit: no init file, packages or host configuration carry over.
+- No network: =package-install= fails, so keep dependencies in the workspace.
+- When stdin and stdout are a terminal, the container gets one, and stdout and stderr share it; redirect to separate them.
+- The exit status is Emacs's or =COMMAND='s. emacsen's own errors exit 1 with the stderr prefix =emacsen:=; Docker failures exit 125 to 127: 126 for a non-executable =COMMAND=, 127 for one not found.
+- As root, or under rootless Docker, the workspace must be world-readable.
+
+** Test a package
+
+Run ERT from source, then from bytecode compiled by the image's Emacs: older Emacs cannot generally run newer bytecode. Load sources by absolute path; =-L /work= would prefer host-compiled =.elc= files. Keep newer Emacs source trees' =lisp/= off =load-path=, where they shadow the image's ERT and standard libraries.
+
+The examples expect =my-package.el= and =test/my-package-tests.el= in =$package=, the workspace, with no dependencies. Add dependencies placed there to =load-path= in both passes.
+
+#+begin_src sh
+package=/path/to/my-package
+./emacsen run 26.3 --directory "$package" -- -Q --batch \
+  -l /work/my-package.el -l /work/test/my-package-tests.el \
+  -f ert-run-tests-batch-and-exit
+#+end_src
+
+The workspace is read-only and each invocation is a new container, so one =exec= compiles copies in =/tmp=, then loads the bytecode in a second Emacs process. One process would hide code that works only because compilation evaluated it.
+
+#+begin_src sh
+./emacsen exec 26.3 --directory "$package" -- sh -c '
+  cp -- my-package.el test/my-package-tests.el /tmp &&
+  emacs -Q --batch -L /tmp -f batch-byte-compile /tmp/my-package.el /tmp/my-package-tests.el &&
+  emacs -Q --batch -L /tmp -l /tmp/my-package-tests.elc -f ert-run-tests-batch-and-exit'
+#+end_src
+
+* Install on the host
+
+=install NAME= runs Emacs's own =make install= from the image's retained build tree into the host's =/usr/local=. It requires a rootful Docker daemon and an image built for the host's OS release; =docker= group membership is root-equivalent.
 
 ** Host libraries
 
@@ -108,77 +181,47 @@ Native compilation needs the =libgccjit= runtime matching the builder's GCC vers
 
 Tree-sitter 0.25 loads ABI 15 grammars. Emacs 31+ installs grammars on demand into =~/.emacs.d/tree-sitter= (=treesit-auto-install-grammar=, =M-x treesit-install-language-grammar=), which needs Git and a C compiler on the host.
 
-** Rehearse and install
-
-Rehearse first. =--into DIR= binds =DIR= at =/usr/local= in the container without changing the prefix; a chroot's =usr/local= also works. A staged tree is for inspection, not relocation.
-
-Each invocation resolves =emacsen:NAME= independently and uses that image ID throughout, reporting it on stderr. The CLI has no image-ID selector. Keep the tag unchanged between rehearsal and host installation; if it changes, rehearse again.
-
-#+begin_src sh
-./emacsen build 31.1
-stage=$(mktemp -d .emacsen/install-XXXXXXXX)
-./emacsen install 31.1 --into "$stage/usr-local"
-sed '/^\[/q' "$stage/usr-local/lib/emacsen/installed/31.1"
-#+end_src
-
-After inspecting the staged tree, install on the host:
+** Install
 
 #+begin_src sh
 ./emacsen install 31.1
 #+end_src
 
-** Installed files
+To inspect the result first, install into a scratch directory. =--into= stages the files without relocating Emacs. They are owned by root, so removing them needs root.
+
+#+begin_src sh
+./emacsen install 31.1 --into "$HOME/emacs-preview"
+#+end_src
+
+Rebuilding before the real install invalidates the preview.
+
+** What gets installed
 
 Different Emacs versions coexist in version-named directories. Reinstalling the same version, including another recipe or variant, replaces that version's files and record. The last install owns the shared files: =bin/emacs= links to its =emacs-VERSION=; =emacsclient=, =etags=, =ebrowse=, the manuals and the man pages are replaced. emacsen does not prune.
 
 Install copies the C sources to =share/emacs/VERSION/src=. =find-function= and the help buffers' C source links reach them without the build tree, under =-Q= too.
 
-Each version's record, =/usr/local/lib/emacsen/installed/VERSION=, holds =image-id:=, =image-tag:= and the image's =build-info=. Neither files nor records depend on the image remaining available; uninstall does. A prefix takes one install or uninstall at a time, from any checkout: a second is refused while the first holds =lib/emacsen/install.lock=.
-
 ** Uninstall
 
-=uninstall VERSION [--from DIR]= runs Emacs's own =make uninstall= from the image recorded for the installed version =VERSION=, selected by ID: a moved tag does not affect it, and a missing image is an error. Removal runs inside that image, so the host's OS release need not match. It requires exactly one recorded version, because =make uninstall= also removes the shared files, and does not detect files replaced outside emacsen.
-
-* Run and exec
+=uninstall VERSION= runs Emacs's own =make uninstall= from the image recorded for the installed version =VERSION=, selected by ID: a moved tag does not affect it, and a missing image is an error. =VERSION= is the installed Emacs's version, as =emacs --version= reports it. Removal runs inside that image, so the host's OS release need not match. It requires exactly one recorded version, because =make uninstall= also removes the shared files, and does not detect files replaced outside emacsen. Keep that image until uninstall. Its ID is the =image-id:= line of the record =/usr/local/lib/emacsen/installed/VERSION=. A rebuild untags it and =docker image prune= deletes it; tag it to keep it:
 
 #+begin_src sh
-./emacsen run 26.3 -- -Q --batch --eval '(princ emacs-version)'
-./emacsen exec 26.3 -- sh -c 'printf "%s\n" "$PWD"; id'
+docker tag "$(sed -n 's/^image-id: //p' /usr/local/lib/emacsen/installed/31.1)" emacsen-installed:31.1
 #+end_src
 
-=run NAME [--directory DIR] [-- EMACS-ARGS...]= starts the image's Emacs. =exec NAME [--directory DIR] -- COMMAND [ARGS...]= starts =COMMAND= from the image's =PATH=.
+* Reference
 
-- Image :: The image tagged =emacsen:NAME=; stderr reports its ID. Never built or pulled; a missing image fails with the build command to run.
-- Project :: =DIR=, default the current directory, mounted at =/work=. Relative paths resolve against the current directory; symlinks resolve to the physical path, reported on stderr.
-- Arguments :: Everything after =--= passes unchanged. =run= may omit =--= when there are no Emacs arguments; =exec= requires =COMMAND= after it. Pass =-Q= for compatibility checks.
-- Filesystem :: Image, project and mounts beneath it are read-only. =HOME= (=/home/runtime=) and =TMPDIR= (=/tmp=) are tmpfs, discarded on exit, and allow execution for native compilation. No host configuration is mounted.
-- User :: The caller's UID and GID. A root caller runs as =65534:65534= (=nobody=), which needs a world-readable project, as does rootless Docker's UID mapping.
-- Isolation :: No network, all capabilities dropped, privilege escalation disabled.
-- Streams :: Stdin is forwarded. When stdin and stdout are terminals, the container gets one with the caller's =TERM=, =--batch= included, and stdout and stderr share it; redirect or pipe to separate them.
-- Exit status :: Emacs's or =COMMAND='s. emacsen errors exit 1 with the stderr prefix =emacsen:=. Docker failures exit 125 to 127: 126 for a non-executable =COMMAND=, 127 for one not found.
+** Recipe format
 
-** Test a package
+=recipes/NAME/recipe=, =NAME= being a letter or digit, optionally followed by letters, digits, =.=, =_= or =-=. One ~key=value~ per line, no spaces around ~=~; the value runs verbatim to the end of the line. Lines starting with =#= are comments. A repeated key, or one not listed for the recipe's source, is refused.
 
-Run ERT from source, then from bytecode compiled by the image's Emacs: older Emacs cannot generally run newer bytecode. Load sources by absolute path; =-L /work= would prefer host-compiled =.elc= files. Keep newer Emacs source trees' =lisp/= off =load-path=, where they shadow the image's ERT and standard libraries.
-
-The examples expect =my-package.el= and =test/my-package-tests.el= in =$package=, with no dependencies. Network is disabled: place dependencies in the project and add them to =load-path= in both passes.
-
-#+begin_src sh
-package=/path/to/my-package
-./emacsen run 26.3 --directory "$package" -- -Q --batch \
-  -l /work/my-package.el -l /work/test/my-package-tests.el \
-  -f ert-run-tests-batch-and-exit
-#+end_src
-
-The project is read-only and each invocation is a new container, so one =exec= compiles copies in =/tmp=, then loads the bytecode in a second Emacs process. One process would hide code that works only because compilation evaluated it.
-
-#+begin_src sh
-./emacsen exec 26.3 --directory "$package" -- sh -c '
-  cp -- my-package.el test/my-package-tests.el /tmp &&
-  emacs -Q --batch -L /tmp -f batch-byte-compile /tmp/my-package.el /tmp/my-package-tests.el &&
-  emacs -Q --batch -L /tmp -l /tmp/my-package-tests.elc -f ert-run-tests-batch-and-exit'
-#+end_src
+- =source= :: Required. =tarball= or =git=.
+- =url= :: Required. Tarball: download URL. Git: repository URL, absolute path or =file://= URL.
+- =sha256= :: Tarball only, required. Lowercase hex digest of the tarball.
+- =ref= :: Git only, required. Full ref name, such as =refs/tags/emacs-30.2= or =refs/heads/master=.
+- =builder= :: Required. A directory under =builders/=.
+- =version= :: Optional. The expected =emacs-version=; the build fails on a mismatch.
 
 * License
 
-MIT. See [[file:LICENSE][LICENSE]].
+MIT. See LICENSE.
